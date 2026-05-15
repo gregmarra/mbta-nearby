@@ -61,6 +61,7 @@
     staleTimer: null,
     isRefreshing: false,
     paramOverride: false,
+    currentHeading: null,
   };
 
   var STALE_AFTER_MS = 3 * 60 * 1000;
@@ -241,6 +242,16 @@
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
+  // Initial bearing from (lat1, lon1) to (lat2, lon2), in degrees clockwise from north.
+  function bearing(lat1, lon1, lat2, lon2) {
+    var f1 = lat1 * Math.PI / 180;
+    var f2 = lat2 * Math.PI / 180;
+    var dl = (lon2 - lon1) * Math.PI / 180;
+    var y = Math.sin(dl) * Math.cos(f2);
+    var x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+
   function fmtDist(mi) {
     if (mi < 0.1) return Math.round(mi * 5280) + ' ft';
     return mi.toFixed(1) + ' mi';
@@ -370,9 +381,14 @@
       var stop = st.stop;
       var groups = st.groups;
 
+      var b = bearing(state.data.lat, state.data.lon, stop.lat, stop.lon);
+      var rot = state.currentHeading !== null ? (b - state.currentHeading) : b;
       h += '<div class="station-header">' +
            '<div class="station-name">' + esc(stop.name) + '</div>' +
-           '<div class="station-dist">' + fmtDist(stop.d) + '</div></div>';
+           '<div class="station-dist">' + fmtDist(stop.d) + '</div>' +
+           '<div class="station-arrow" data-bearing="' + b.toFixed(1) +
+           '" style="transform:rotate(' + rot.toFixed(1) + 'deg)">↑</div>' +
+           '</div>';
 
       if (groups.length === 0) {
         h += '<div class="no-service">No upcoming vehicles</div>';
@@ -547,8 +563,39 @@
     }
   }
 
+  // Compass heading from DeviceOrientationEvent, throttled to ~30 Hz per the
+  // sensor performance budget. Rotates station arrows to point toward each
+  // stop relative to which way the user is facing.
+  var lastOrientationUpdate = 0;
+  function onOrientation(e) {
+    var now = Date.now();
+    if (now - lastOrientationUpdate < 33) return;
+    lastOrientationUpdate = now;
+
+    var heading;
+    if (typeof e.webkitCompassHeading === 'number') {
+      heading = e.webkitCompassHeading;
+    } else if (e.absolute && typeof e.alpha === 'number') {
+      heading = (360 - e.alpha) % 360;
+    } else {
+      return;
+    }
+    state.currentHeading = heading;
+    updateArrows();
+  }
+
+  function updateArrows() {
+    var arrows = document.querySelectorAll('.station-arrow');
+    for (var i = 0; i < arrows.length; i++) {
+      var b = parseFloat(arrows[i].dataset.bearing);
+      var rot = state.currentHeading !== null ? (b - state.currentHeading) : b;
+      arrows[i].style.transform = 'rotate(' + rot.toFixed(1) + 'deg)';
+    }
+  }
+
   function setupEvents() {
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('deviceorientation', onOrientation);
 
     document.addEventListener('click', function(e) {
       var el = e.target.closest('[data-action]');

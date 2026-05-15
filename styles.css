@@ -247,6 +247,19 @@ body {
   margin-left: 12px;
   flex-shrink: 0;
 }
+.station-arrow {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  line-height: 14px;
+  text-align: center;
+  color: var(--text-secondary);
+  margin-left: 10px;
+  transform-origin: center;
+  transition: transform 0.15s linear;
+  flex-shrink: 0;
+}
 
 /* === Route Row === */
 .route-row {
