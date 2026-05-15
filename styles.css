@@ -355,6 +355,11 @@ body {
   flex-shrink: 0;
   position: relative;
   z-index: 5;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+.scrim-bottom.at-bottom {
+  opacity: 0;
 }
 
 /* === Utility === */

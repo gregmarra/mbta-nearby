@@ -602,6 +602,18 @@
     }
     el.innerHTML = h;
     el.classList.remove('hidden');
+    updateScrim();
+  }
+
+  // Hide the bottom scrim when there's nothing more to scroll to — it's
+  // meant to hint at off-screen content below, so showing it at the
+  // bottom (or when content fits without scrolling) is misleading.
+  function updateScrim() {
+    var content = document.querySelector('.content');
+    var scrim = document.querySelector('.scrim-bottom');
+    if (!content || !scrim) return;
+    var atBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 1;
+    scrim.classList.toggle('at-bottom', atBottom);
   }
 
   function renderPreservingFocus() {
@@ -788,6 +800,9 @@
   function setupEvents() {
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('deviceorientation', onOrientation);
+
+    var contentEl = document.querySelector('.content');
+    if (contentEl) contentEl.addEventListener('scroll', updateScrim);
 
     document.addEventListener('click', function(e) {
       var el = e.target.closest('[data-action]');
