@@ -286,57 +286,96 @@
     });
   }
 
-  function fetchPreds(stopId) {
+  // Batched predictions: one /predictions call covers all queried stops.
+  // The API returns predictions whose stop.id is a platform-level child of
+  // the queried (parent) stops, so we look up each prediction's
+  // parent_station from the `included` data to bucket it back to the
+  // correct queried stop id.
+  function fetchPredsBatch(stopIds) {
     var url = CONFIG.api.baseUrl + '/predictions' +
-      '?filter[stop]=' + stopId +
-      '&include=route&sort=direction_id,departure_time' +
+      '?filter[stop]=' + stopIds.join(',') +
+      '&include=route,stop' +
+      '&sort=direction_id,departure_time' +
+      '&page[limit]=200' +
       '&fields[prediction]=arrival_time,departure_time,direction_id,status' +
-      '&fields[route]=long_name,short_name,color,direction_names,direction_destinations,type';
-    return apiGet(url, { cacheKey: 'preds:' + stopId, cacheDuration: 15000 }).then(function(j) {
+      '&fields[route]=long_name,short_name,color,direction_names,direction_destinations,type' +
+      '&fields[stop]=parent_station';
+    var cacheKey = 'predsBatch:' + stopIds.slice().sort().join('|');
+    return apiGet(url, { cacheKey: cacheKey, cacheDuration: 15000 }).then(function(j) {
       var preds = j.data || [];
       var inc = j.included || [];
-      var rMap = {};
+      var rMap = {}, sMap = {};
       for (var i = 0; i < inc.length; i++) {
         if (inc[i].type === 'route') rMap[inc[i].id] = inc[i].attributes;
+        else if (inc[i].type === 'stop') sMap[inc[i].id] = inc[i];
       }
-      var gMap = {};
-      var order = [];
+
+      var queriedSet = {};
+      var byStop = {};
+      for (var i = 0; i < stopIds.length; i++) {
+        queriedSet[stopIds[i]] = true;
+        byStop[stopIds[i]] = [];
+      }
+
       for (var k = 0; k < preds.length; k++) {
         var p = preds[k];
-        var rId = p.relationships.route.data.id;
-        var dId = p.attributes.direction_id;
-        var key = rId + '|' + dId;
-        if (!gMap[key]) {
-          var rt = rMap[rId] || {};
-          var dests = rt.direction_destinations || [];
-          var dirs = rt.direction_names || [];
-          gMap[key] = {
-            rId: rId,
-            badge: rt.short_name || rId,
-            label: rt.long_name || '',
-            color: rt.color ? '#' + rt.color : '#666',
-            rType: rt.type,
-            dest: dests[dId] || dirs[dId] || (dId === 0 ? 'Outbound' : 'Inbound'),
-            ps: [],
-          };
-          order.push(key);
+        var psId = p.relationships.stop.data.id;
+        var targetId = null;
+        if (queriedSet[psId]) {
+          targetId = psId;
+        } else if (sMap[psId]) {
+          var parent = sMap[psId].relationships.parent_station.data;
+          if (parent && queriedSet[parent.id]) targetId = parent.id;
         }
-        var t = p.attributes.arrival_time || p.attributes.departure_time;
-        gMap[key].ps.push({ time: t, status: p.attributes.status });
+        if (targetId) byStop[targetId].push(p);
       }
-      var out = [];
-      for (var m = 0; m < order.length; m++) {
-        var g = gMap[order[m]];
-        g.ps = g.ps.slice(0, 2);
-        out.push(g);
+
+      var result = {};
+      for (var i = 0; i < stopIds.length; i++) {
+        result[stopIds[i]] = groupPredictions(byStop[stopIds[i]], rMap);
       }
-      out.sort(function(a, b) {
-        if (a.rType !== b.rType) return (a.rType || 99) - (b.rType || 99);
-        if (a.rId !== b.rId) return a.rId < b.rId ? -1 : 1;
-        return 0;
-      });
-      return out;
+      return result;
     });
+  }
+
+  function groupPredictions(preds, rMap) {
+    var gMap = {};
+    var order = [];
+    for (var k = 0; k < preds.length; k++) {
+      var p = preds[k];
+      var rId = p.relationships.route.data.id;
+      var dId = p.attributes.direction_id;
+      var key = rId + '|' + dId;
+      if (!gMap[key]) {
+        var rt = rMap[rId] || {};
+        var dests = rt.direction_destinations || [];
+        var dirs = rt.direction_names || [];
+        gMap[key] = {
+          rId: rId,
+          badge: rt.short_name || rId,
+          label: rt.long_name || '',
+          color: rt.color ? '#' + rt.color : '#666',
+          rType: rt.type,
+          dest: dests[dId] || dirs[dId] || (dId === 0 ? 'Outbound' : 'Inbound'),
+          ps: [],
+        };
+        order.push(key);
+      }
+      var t = p.attributes.arrival_time || p.attributes.departure_time;
+      gMap[key].ps.push({ time: t, status: p.attributes.status });
+    }
+    var out = [];
+    for (var m = 0; m < order.length; m++) {
+      var g = gMap[order[m]];
+      g.ps = g.ps.slice(0, 2);
+      out.push(g);
+    }
+    out.sort(function(a, b) {
+      if (a.rType !== b.rType) return (a.rType || 99) - (b.rType || 99);
+      if (a.rId !== b.rId) return a.rId < b.rId ? -1 : 1;
+      return 0;
+    });
+    return out;
   }
 
   function fmtTime(p) {
@@ -367,7 +406,7 @@
   // ==================== RENDER ====================
   function bustPredsCache() {
     Object.keys(state.cache).forEach(function(k) {
-      if (k.indexOf('preds:') === 0) delete state.cache[k];
+      if (k.indexOf('predsBatch:') === 0) delete state.cache[k];
     });
   }
 
@@ -451,10 +490,9 @@
 
       setLoading(true, 'Loading predictions...', '');
 
-      var promises = stops.map(function(s) { return fetchPreds(s.id); });
-      return Promise.all(promises).then(function(results) {
-        state.data.stations = stops.map(function(s, i) {
-          return { stop: s, groups: results[i] };
+      return fetchPredsBatch(stops.map(function(s) { return s.id; })).then(function(byStop) {
+        state.data.stations = stops.map(function(s) {
+          return { stop: s, groups: byStop[s.id] || [] };
         });
         clearError();
         setLoading(false);
@@ -505,9 +543,9 @@
       if (moved) {
         return fetchStops(state.data.lat, state.data.lon).then(function(stops) {
           if (stops.length === 0) return refreshPreds();
-          return Promise.all(stops.map(function(s) { return fetchPreds(s.id); })).then(function(rs) {
-            state.data.stations = stops.map(function(s, i) {
-              return { stop: s, groups: rs[i] };
+          return fetchPredsBatch(stops.map(function(s) { return s.id; })).then(function(byStop) {
+            state.data.stations = stops.map(function(s) {
+              return { stop: s, groups: byStop[s.id] || [] };
             });
             renderPreservingFocus();
           });
@@ -527,9 +565,11 @@
   function refreshPreds() {
     bustPredsCache();
     var stations = state.data.stations;
-    var promises = stations.map(function(st) { return fetchPreds(st.stop.id); });
-    return Promise.all(promises).then(function(rs) {
-      for (var i = 0; i < stations.length; i++) stations[i].groups = rs[i];
+    var ids = stations.map(function(st) { return st.stop.id; });
+    return fetchPredsBatch(ids).then(function(byStop) {
+      for (var i = 0; i < stations.length; i++) {
+        stations[i].groups = byStop[stations[i].stop.id] || [];
+      }
       renderPreservingFocus();
     });
   }
