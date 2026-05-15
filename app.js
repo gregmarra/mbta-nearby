@@ -59,6 +59,7 @@
     cache: {},
     refreshTimer: null,
     staleTimer: null,
+    isRefreshing: false,
     paramOverride: false,
   };
 
@@ -465,6 +466,8 @@
   }
 
   function refreshAll() {
+    if (state.isRefreshing) return;
+    state.isRefreshing = true;
     setStatus('refreshing');
 
     var locPromise = state.data.usingMock
@@ -496,9 +499,11 @@
       }
       return refreshPreds();
     }).then(function() {
+      state.isRefreshing = false;
       markFresh();
       setStatus('live');
     }).catch(function() {
+      state.isRefreshing = false;
       setStatus('live');
     });
   }
@@ -530,7 +535,21 @@
   }
 
   // ==================== EVENT LISTENERS ====================
+  // Pause auto-refresh while the tab is hidden (browsers throttle background
+  // fetches and timers, which leaves the spinner stuck when you come back).
+  // On return, refresh immediately so the data is current.
+  function onVisibilityChange() {
+    if (document.hidden) {
+      stopRefreshTimer();
+    } else if (state.data.stations.length > 0 && !state.isRefreshing) {
+      refreshAll();
+      startRefreshTimer();
+    }
+  }
+
   function setupEvents() {
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     document.addEventListener('click', function(e) {
       var el = e.target.closest('[data-action]');
       if (el) handleAction(el.dataset.action);
