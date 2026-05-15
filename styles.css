@@ -87,6 +87,28 @@ body {
   animation: none;
   font-size: 16px;
 }
+
+/* Small icon-button for header actions — matches template's .back-btn pattern */
+.header-action {
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 22px;
+  line-height: 1;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 2px solid transparent;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-action.refreshing {
+  animation: spin 0.8s linear infinite;
+  color: var(--accent-primary);
+}
 @keyframes pulse {
   0%, 100% { opacity: 0.5; }
   50% { opacity: 1; }
@@ -116,18 +138,9 @@ body {
   box-shadow: 0 0 20px var(--focus-glow);
 }
 
-/* === Nav Bar === */
-.nav-bar {
-  display: flex;
-  gap: 8px;
-  padding: 0 20px;
-  background: var(--bg-secondary);
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  flex-shrink: 0;
-}
+/* === Primary button (used in error-container "Try Again") === */
 .nav-item {
-  flex: 1;
-  padding: 0 16px;
+  padding: 0 32px;
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
   color: var(--text-primary);

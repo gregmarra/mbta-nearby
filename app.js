@@ -161,7 +161,6 @@
     state.error = message;
     setLoading(false);
     document.getElementById('station-list').classList.add('hidden');
-    document.getElementById('main-nav').classList.add('hidden');
     var errorEl = document.getElementById('error');
     errorEl.classList.remove('hidden');
     var msg = document.getElementById('error-message');
@@ -176,15 +175,8 @@
   }
 
   function setStatus(mode) {
-    var el = document.getElementById('status-indicator');
-    if (!el) return;
-    if (mode === 'refreshing') {
-      el.textContent = '↻';
-      el.className = 'header-meta status-refreshing';
-    } else {
-      el.textContent = '● LIVE';
-      el.className = 'header-meta status-live';
-    }
+    var btn = document.getElementById('refresh-btn');
+    if (btn) btn.classList.toggle('refreshing', mode === 'refreshing');
   }
 
   function updateHeaderTitle() {
@@ -397,7 +389,6 @@
     }
     el.innerHTML = h;
     el.classList.remove('hidden');
-    document.getElementById('main-nav').classList.remove('hidden');
   }
 
   function renderPreservingFocus() {
@@ -568,7 +559,6 @@
     state.data.usingMock = false;
     clearError();
     document.getElementById('station-list').classList.add('hidden');
-    document.getElementById('main-nav').classList.add('hidden');
     setLoading(true, 'Getting location...', 'Finding nearby MBTA stops');
 
     if (state.paramOverride) {
