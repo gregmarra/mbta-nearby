@@ -18,6 +18,32 @@
     moveThresholdMi: 0.03,
   };
 
+  // Effect → short badge text. Falls through to the API value or 'ALERT'.
+  var EFFECT_SHORT = {
+    'SUSPENSION': 'SUSP',
+    'CANCELLATION': 'CANCEL',
+    'STATION_CLOSURE': 'CLOSED',
+    'STATION_ISSUE': 'ISSUE',
+    'STOP_CLOSURE': 'CLOSED',
+    'STOP_MOVED': 'MOVED',
+    'NO_SERVICE': 'NO SVC',
+    'SCHEDULE_CHANGE': 'SCHED',
+    'TRACK_CHANGE': 'TRACK',
+    'SERVICE_CHANGE': 'CHANGE',
+    'SHUTTLE': 'SHUTTLE',
+    'SNOW_ROUTE': 'SNOW',
+    'PARKING_CLOSURE': 'PARKING',
+    'DELAY': 'DELAY',
+    'DETOUR': 'DETOUR',
+    'POLICY_CHANGE': 'POLICY',
+  };
+  var EFFECT_SEVERE = {
+    'SUSPENSION': 1, 'CANCELLATION': 1, 'STATION_CLOSURE': 1,
+    'STOP_CLOSURE': 1, 'NO_SERVICE': 1,
+  };
+  function effectShort(eff) { return EFFECT_SHORT[eff] || eff || 'ALERT'; }
+  function effectSevere(eff) { return !!EFFECT_SEVERE[eff]; }
+
   var ROUTE_COLORS = {
     'Red': '#DA291C', 'Mattapan': '#DA291C',
     'Orange': '#ED8B00',
@@ -338,6 +364,71 @@
     });
   }
 
+  // Fetch active service alerts for the given route IDs. Returns a map
+  // of `routeId|directionId` -> [alert{header,effect,severity}], with
+  // direction_id === null in informed_entity bucketed as `routeId|*`
+  // (alert applies to both directions). Filters to severity >= 3 to
+  // skip purely informational notices (e.g. long-running renovations).
+  function fetchAlerts(routeIds) {
+    if (routeIds.length === 0) return Promise.resolve({});
+    var url = CONFIG.api.baseUrl + '/alerts' +
+      '?filter[route]=' + routeIds.join(',') +
+      '&filter[activity]=BOARD,EXIT,RIDE' +
+      '&fields[alert]=header,short_header,effect,severity,informed_entity';
+    var cacheKey = 'alerts:' + routeIds.slice().sort().join('|');
+    return apiGet(url, { cacheKey: cacheKey, cacheDuration: 60000 }).then(function(j) {
+      var alerts = j.data || [];
+      var byKey = {};
+      for (var i = 0; i < alerts.length; i++) {
+        var a = alerts[i];
+        var attrs = a.attributes;
+        if ((attrs.severity || 0) < 3) continue;
+        var info = {
+          header: attrs.short_header || attrs.header || '',
+          effect: attrs.effect,
+          severity: attrs.severity || 0,
+        };
+        var entities = attrs.informed_entity || [];
+        var seenForThisAlert = {};
+        for (var k = 0; k < entities.length; k++) {
+          var ent = entities[k];
+          if (!ent.route || routeIds.indexOf(ent.route) === -1) continue;
+          var key = ent.route + '|' + (ent.direction_id == null ? '*' : ent.direction_id);
+          if (seenForThisAlert[key]) continue;
+          seenForThisAlert[key] = true;
+          if (!byKey[key]) byKey[key] = [];
+          byKey[key].push(info);
+        }
+      }
+      return byKey;
+    });
+  }
+
+  function collectRouteIds() {
+    var seen = {};
+    state.data.stations.forEach(function(st) {
+      st.groups.forEach(function(g) { seen[g.rId] = true; });
+    });
+    return Object.keys(seen);
+  }
+
+  function attachAlerts(byKey) {
+    state.data.stations.forEach(function(st) {
+      st.groups.forEach(function(g) {
+        var direct = byKey[g.rId + '|' + g.dId] || [];
+        var both = byKey[g.rId + '|*'] || [];
+        var merged = direct.concat(both);
+        var seen = {};
+        merged.sort(function(a, b) { return (b.severity || 0) - (a.severity || 0); });
+        g.alerts = merged.filter(function(a) {
+          if (seen[a.header]) return false;
+          seen[a.header] = true;
+          return true;
+        });
+      });
+    });
+  }
+
   function groupPredictions(preds, rMap) {
     var gMap = {};
     var order = [];
@@ -352,12 +443,14 @@
         var dirs = rt.direction_names || [];
         gMap[key] = {
           rId: rId,
+          dId: dId,
           badge: rt.short_name || rId,
           label: rt.long_name || '',
           color: rt.color ? '#' + rt.color : '#666',
           rType: rt.type,
           dest: dests[dId] || dirs[dId] || (dId === 0 ? 'Outbound' : 'Inbound'),
           ps: [],
+          alerts: [],
         };
         order.push(key);
       }
@@ -406,7 +499,7 @@
   // ==================== RENDER ====================
   function bustPredsCache() {
     Object.keys(state.cache).forEach(function(k) {
-      if (k.indexOf('predsBatch:') === 0) delete state.cache[k];
+      if (k.indexOf('predsBatch:') === 0 || k.indexOf('alerts:') === 0) delete state.cache[k];
     });
   }
 
@@ -439,8 +532,17 @@
         var c = ROUTE_COLORS[g.rId] || g.color || TYPE_COLORS[g.rType] || '#666';
         var tc = badgeTextColor(c);
 
+        var alertHtml = '';
+        if (g.alerts && g.alerts.length > 0) {
+          var top = g.alerts[0]; // sorted severity-desc in attachAlerts
+          var aCls = (effectSevere(top.effect) || top.severity >= 7) ? 'severe' : '';
+          alertHtml = '<span class="route-alert ' + aCls + '" title="' + esc(top.header) + '">' +
+                      esc(effectShort(top.effect)) + '</span>';
+        }
+
         h += '<div class="route-row focusable" tabindex="0">' +
              '<span class="route-badge" style="background:' + c + ';color:' + tc + ';">' + esc(g.badge) + '</span>' +
+             alertHtml +
              '<span class="route-dest">' + esc(g.dest) + '</span>' +
              '<div class="preds">';
 
@@ -494,6 +596,9 @@
         state.data.stations = stops.map(function(s) {
           return { stop: s, groups: byStop[s.id] || [] };
         });
+        return fetchAlerts(collectRouteIds()).catch(function() { return {}; });
+      }).then(function(byKey) {
+        attachAlerts(byKey);
         clearError();
         setLoading(false);
         render();
@@ -547,6 +652,9 @@
             state.data.stations = stops.map(function(s) {
               return { stop: s, groups: byStop[s.id] || [] };
             });
+            return fetchAlerts(collectRouteIds()).catch(function() { return {}; });
+          }).then(function(byKey) {
+            attachAlerts(byKey);
             renderPreservingFocus();
           });
         });
@@ -570,6 +678,9 @@
       for (var i = 0; i < stations.length; i++) {
         stations[i].groups = byStop[stations[i].stop.id] || [];
       }
+      return fetchAlerts(collectRouteIds()).catch(function() { return {}; });
+    }).then(function(byKey) {
+      attachAlerts(byKey);
       renderPreservingFocus();
     });
   }

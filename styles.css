@@ -287,6 +287,23 @@ body {
   color: #ffffff;
 }
 
+.route-alert {
+  flex-shrink: 0;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 170, 0, 0.18);
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.route-alert.severe {
+  background: rgba(255, 68, 102, 0.2);
+  color: var(--danger);
+}
+
 .route-dest {
   flex: 1;
   font-size: 16px;
