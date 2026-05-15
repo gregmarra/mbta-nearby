@@ -58,8 +58,11 @@
     },
     cache: {},
     refreshTimer: null,
+    staleTimer: null,
     paramOverride: false,
   };
+
+  var STALE_AFTER_MS = 3 * 60 * 1000;
 
   // ==================== DOM REFS ====================
   var screens = {};
@@ -177,6 +180,17 @@
   function setStatus(mode) {
     var btn = document.getElementById('refresh-btn');
     if (btn) btn.classList.toggle('refreshing', mode === 'refreshing');
+  }
+
+  // Show the "LIVE" indicator on a successful refresh; auto-hide it after
+  // STALE_AFTER_MS so it disappears when refreshes have been failing.
+  function markFresh() {
+    var el = document.getElementById('status-indicator');
+    if (el) el.classList.remove('hidden');
+    if (state.staleTimer) clearTimeout(state.staleTimer);
+    state.staleTimer = setTimeout(function() {
+      if (el) el.classList.add('hidden');
+    }, STALE_AFTER_MS);
   }
 
   function updateHeaderTitle() {
@@ -429,6 +443,7 @@
         setLoading(false);
         render();
         focusFirst();
+        markFresh();
         reverseGeocode(lat, lon);
         startRefreshTimer();
       });
@@ -481,6 +496,7 @@
       }
       return refreshPreds();
     }).then(function() {
+      markFresh();
       setStatus('live');
     }).catch(function() {
       setStatus('live');
