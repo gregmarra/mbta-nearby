@@ -2,6 +2,8 @@
 
 A web app that shows live arrival predictions for the three nearest MBTA stops. Built for [Meta Ray-Ban Display glasses](https://wearables.developer.meta.com/docs/develop/webapps) (600×600 dark display, D-pad navigation) and runs equally well in any modern browser.
 
+**Live:** <https://www.grgmrr.com/mbta-nearby/>
+
 ## Features
 
 - Top three nearest stops by geolocation, deduplicated by name, sorted by haversine distance
