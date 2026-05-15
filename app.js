@@ -145,31 +145,49 @@
     } else {
       nextIdx = idx < list.length - 1 ? idx + 1 : 0;
     }
-    list[nextIdx].focus();
+    // preventScroll so the browser's default focus auto-scroll (which
+    // only guarantees the focused element is visible) doesn't fight
+    // with our explicit scroll below.
+    list[nextIdx].focus({ preventScroll: true });
     scrollRowIntoView(list[nextIdx]);
   }
 
-  // If the focused row is the first focusable under its station header,
-  // pull that header into view too — otherwise scrolling back to the top
-  // of the list leaves the header stranded above the visible area.
+  // Scrolls .content directly via scrollBy so the result is deterministic.
+  // Priorities: 1) if row hangs below the viewport, scroll down to reveal
+  // it; 2) if this row is the first focusable beneath a station header and
+  // that header is above the viewport, scroll up so the header sits at
+  // the top of the content area (this is the case the user hit when
+  // wrapping back up to the first row); 3) fallback for a row above view
+  // with no preceding header.
   function scrollRowIntoView(row) {
     var header = null;
     for (var n = row.previousElementSibling; n; n = n.previousElementSibling) {
       if (n.classList.contains('station-header')) { header = n; break; }
-      if (n.classList.contains('focusable')) break; // not the first row of this station
+      if (n.classList.contains('focusable')) break;
     }
+
+    var content = row.closest('.content');
+    if (!content) return;
+
+    var contentRect = content.getBoundingClientRect();
+    var rowRect = row.getBoundingClientRect();
+
+    if (rowRect.bottom > contentRect.bottom) {
+      content.scrollBy({ top: rowRect.bottom - contentRect.bottom, behavior: 'smooth' });
+      return;
+    }
+
     if (header) {
-      var content = row.closest('.content');
-      if (content) {
-        var contentRect = content.getBoundingClientRect();
-        var headerRect = header.getBoundingClientRect();
-        if (headerRect.top < contentRect.top || headerRect.bottom > contentRect.bottom) {
-          header.scrollIntoView({ block: 'start', behavior: 'smooth' });
-          return;
-        }
+      var headerRect = header.getBoundingClientRect();
+      if (headerRect.top < contentRect.top) {
+        content.scrollBy({ top: headerRect.top - contentRect.top, behavior: 'smooth' });
+        return;
       }
     }
-    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+
+    if (rowRect.top < contentRect.top) {
+      content.scrollBy({ top: rowRect.top - contentRect.top, behavior: 'smooth' });
+    }
   }
 
   // ==================== API LAYER ====================
