@@ -326,6 +326,11 @@ body {
   font-size: 12px;
   color: var(--text-muted);
 }
+.pred-label.last {
+  color: var(--warning);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
 .pred-val {
   font-size: 22px;
   font-weight: 700;

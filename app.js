@@ -364,7 +364,7 @@
       '&include=route,stop' +
       '&sort=direction_id,departure_time' +
       '&page[limit]=200' +
-      '&fields[prediction]=arrival_time,departure_time,direction_id,status' +
+      '&fields[prediction]=arrival_time,departure_time,direction_id,status,last_trip' +
       '&fields[route]=long_name,short_name,color,direction_names,direction_destinations,type' +
       '&fields[stop]=parent_station';
     var cacheKey = 'predsBatch:' + stopIds.slice().sort().join('|');
@@ -496,7 +496,11 @@
         order.push(key);
       }
       var t = p.attributes.arrival_time || p.attributes.departure_time;
-      gMap[key].ps.push({ time: t, status: p.attributes.status });
+      gMap[key].ps.push({
+        time: t,
+        status: p.attributes.status,
+        lastTrip: p.attributes.last_trip,
+      });
     }
     var out = [];
     for (var m = 0; m < order.length; m++) {
@@ -589,8 +593,13 @@
 
         for (var j = 0; j < 2; j++) {
           var lbl = j === 0 ? 'Next' : 'Then';
+          var lblCls = 'pred-label';
+          if (j < g.ps.length && g.ps[j].lastTrip) {
+            lbl = 'LAST';
+            lblCls = 'pred-label last';
+          }
           if (j < g.ps.length) {
-            h += '<div class="pred-col"><div class="pred-label">' + lbl + '</div>' +
+            h += '<div class="pred-col"><div class="' + lblCls + '">' + lbl + '</div>' +
                  '<div class="pred-val ' + timeCls(g.ps[j]) + '">' + fmtTime(g.ps[j]) + '</div></div>';
           } else {
             h += '<div class="pred-col"><div class="pred-label">' + lbl + '</div>' +
