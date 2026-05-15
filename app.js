@@ -27,6 +27,22 @@
   };
   var TYPE_COLORS = { 0: '#00843D', 1: '#DA291C', 2: '#80276C', 3: '#FFC72C', 4: '#008EAA' };
 
+  // WCAG relative luminance → pick the higher-contrast text color for a given
+  // badge background. Yellow buses with white text would be 1.55:1 (illegible).
+  function badgeTextColor(hex) {
+    if (!hex || hex.charAt(0) !== '#' || hex.length < 7) return '#ffffff';
+    function lin(c) {
+      c = parseInt(c, 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    var L = 0.2126 * lin(hex.slice(1, 3)) +
+            0.7152 * lin(hex.slice(3, 5)) +
+            0.0722 * lin(hex.slice(5, 7));
+    var contrastBlack = (L + 0.05) / 0.05;
+    var contrastWhite = 1.05 / (L + 0.05);
+    return contrastBlack > contrastWhite ? '#000000' : '#ffffff';
+  }
+
   // ==================== STATE ====================
   var state = {
     currentScreen: 'home',
@@ -359,9 +375,10 @@
       for (var gi = 0; gi < groups.length; gi++) {
         var g = groups[gi];
         var c = ROUTE_COLORS[g.rId] || g.color || TYPE_COLORS[g.rType] || '#666';
+        var tc = badgeTextColor(c);
 
         h += '<div class="route-row focusable" tabindex="0">' +
-             '<span class="route-badge" style="background:' + c + ';">' + esc(g.badge) + '</span>' +
+             '<span class="route-badge" style="background:' + c + ';color:' + tc + ';">' + esc(g.badge) + '</span>' +
              '<span class="route-dest">' + esc(g.dest) + '</span>' +
              '<div class="preds">';
 
