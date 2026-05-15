@@ -146,7 +146,30 @@
       nextIdx = idx < list.length - 1 ? idx + 1 : 0;
     }
     list[nextIdx].focus();
-    list[nextIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    scrollRowIntoView(list[nextIdx]);
+  }
+
+  // If the focused row is the first focusable under its station header,
+  // pull that header into view too — otherwise scrolling back to the top
+  // of the list leaves the header stranded above the visible area.
+  function scrollRowIntoView(row) {
+    var header = null;
+    for (var n = row.previousElementSibling; n; n = n.previousElementSibling) {
+      if (n.classList.contains('station-header')) { header = n; break; }
+      if (n.classList.contains('focusable')) break; // not the first row of this station
+    }
+    if (header) {
+      var content = row.closest('.content');
+      if (content) {
+        var contentRect = content.getBoundingClientRect();
+        var headerRect = header.getBoundingClientRect();
+        if (headerRect.top < contentRect.top || headerRect.bottom > contentRect.bottom) {
+          header.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          return;
+        }
+      }
+    }
+    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   // ==================== API LAYER ====================
