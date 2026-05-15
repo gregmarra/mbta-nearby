@@ -612,7 +612,7 @@
     var content = document.querySelector('.content');
     var scrim = document.querySelector('.scrim-bottom');
     if (!content || !scrim) return;
-    var atBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 1;
+    var atBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 3;
     scrim.classList.toggle('at-bottom', atBottom);
   }
 
