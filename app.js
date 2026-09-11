@@ -1051,10 +1051,9 @@
           }
           e.preventDefault();
           break;
-        case 'Escape':
-        case 'Backspace':
-          e.preventDefault();
-          break;
+        // Escape (the back gesture) is intentionally unhandled: the glasses
+        // shell checks navigation.canGoBack itself and either calls
+        // history.back() or opens the system menu before the page sees it.
       }
     });
   }
