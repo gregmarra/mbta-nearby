@@ -12,8 +12,8 @@ A web app that shows live arrival predictions for the three nearest MBTA stops. 
 - Official MBTA route badge colors, with text color picked per-badge by WCAG luminance (so the yellow bus routes get black numbers instead of illegible white)
 - Reverse-geocoded header (`MBTA · Neighborhood, City`) via OpenStreetMap Nominatim
 - 30-second auto-refresh, paused while the tab is hidden; re-fetches stops if you've moved more than 0.03 mi
-- `LIVE` indicator hides automatically after 3 minutes without a successful refresh
-- Offline mode: a service worker (`sw.js`) precaches the app shell, and the last successful result is snapshotted to `localStorage` so a cold or offline start renders real stops immediately (`CACHED` / `OFFLINE` header pill instead of a spinner). Departed predictions are pruned from the snapshot.
+- Header pill says how old the numbers are: `LIVE` within 3 minutes of a successful refresh, `UPDATED 4m AGO` (ticking) once older than that, `OFFLINE` when there is no connection
+- Offline mode: a service worker (`sw.js`) precaches the app shell, and the last successful result is snapshotted to `localStorage` so a cold or offline start renders real stops immediately instead of a spinner. Departed predictions are pruned from the snapshot.
 - D-pad navigation with wrap-around focus and a cyan focus ring per the glasses design system
 - Station detail screen: activate any route row to see every route at that stop with full alert text; the back gesture returns home with focus and scroll restored (history-backed, one level deep, within the shell's five-entry `pushState` limit)
 

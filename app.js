@@ -84,14 +84,14 @@
     },
     cache: {},
     refreshTimer: null,
-    staleTimer: null,
+    indicatorTimer: null,
+    lastUpdatedAt: 0,
     watchId: null,
     lastFix: null,
     isRefreshing: false,
     paramOverride: false,
     currentHeading: null,
     showingSnapshot: false,
-    snapshotSavedAt: 0,
   };
 
   var STALE_AFTER_MS = 3 * 60 * 1000;
@@ -310,7 +310,7 @@
     // A snapshot beats an error screen: leave it up and let the header
     // indicator (OFFLINE / CACHED) explain why the numbers aren't moving.
     if (state.showingSnapshot) {
-      showSnapshotIndicator();
+      updateIndicator();
       return;
     }
     document.getElementById('station-list').classList.add('hidden');
@@ -333,39 +333,46 @@
   }
 
   // Header status pill. Modes:
-  //   'live'    — green pulse, data refreshed within STALE_AFTER_MS
-  //   'cached'  — muted, showing a localStorage snapshot (age in label)
-  //   'offline' — amber, navigator.onLine is false
-  //   null      — hidden
-  var INDICATOR = {
-    live:    { text: '\u25CF LIVE',    cls: 'status-live' },
-    cached:  { text: '\u25CF CACHED',  cls: 'status-cached' },
-    offline: { text: '\u25CF OFFLINE', cls: 'status-offline' },
-  };
-  function setIndicator(mode, label) {
+  // The pill answers one question: how old are these numbers?
+  //   '\u25CF LIVE'           green pulse, refreshed within STALE_AFTER_MS
+  //   '\u25CF UPDATED 4m AGO' muted, older than that — whether from a
+  //                        localStorage snapshot or a refresh that stopped
+  //                        succeeding; the age ticks
+  //   '\u25CF OFFLINE'        amber, navigator.onLine is false
+  //   hidden               nothing has ever loaded
+  function updateIndicator() {
     var el = document.getElementById('status-indicator');
     if (!el) return;
-    el.classList.remove('status-live', 'status-cached', 'status-offline');
-    if (!mode || !INDICATOR[mode]) {
+    el.classList.remove('status-live', 'status-stale', 'status-offline');
+    if (navigator.onLine === false) {
+      el.textContent = '\u25CF OFFLINE';
+      el.classList.add('status-offline');
+    } else if (!state.lastUpdatedAt) {
       el.classList.add('hidden');
       return;
+    } else if (Date.now() - state.lastUpdatedAt < STALE_AFTER_MS) {
+      el.textContent = '\u25CF LIVE';
+      el.classList.add('status-live');
+    } else {
+      el.textContent = '\u25CF UPDATED ' + fmtAge(Date.now() - state.lastUpdatedAt) + ' AGO';
+      el.classList.add('status-stale');
     }
-    el.textContent = label || INDICATOR[mode].text;
-    el.classList.add(INDICATOR[mode].cls);
     el.classList.remove('hidden');
   }
 
-  // Show the "LIVE" indicator on a successful refresh; auto-hide it after
-  // STALE_AFTER_MS so it disappears when refreshes have been failing.
+  // Re-evaluate the pill periodically so LIVE decays to UPDATED and the
+  // age keeps counting without any other event.
+  function startIndicatorTicker() {
+    if (state.indicatorTimer) return;
+    state.indicatorTimer = setInterval(updateIndicator, 15000);
+  }
+
   function markFresh() {
     state.showingSnapshot = false;
+    state.lastUpdatedAt = Date.now();
     setStatus('live');
-    setIndicator('live');
+    updateIndicator();
     saveSnapshot();
-    if (state.staleTimer) clearTimeout(state.staleTimer);
-    state.staleTimer = setTimeout(function() {
-      setIndicator(navigator.onLine === false ? 'offline' : null);
-    }, STALE_AFTER_MS);
   }
 
   // ==================== SNAPSHOT (localStorage) ====================
@@ -395,9 +402,9 @@
   }
 
   function fmtAge(ms) {
-    var m = Math.round(ms / 60000);
-    if (m < 1) return 'just now';
-    return m + 'm ago';
+    var m = Math.floor(ms / 60000);
+    if (m < 60) return Math.max(m, 1) + 'm';
+    return Math.floor(m / 60) + 'h';
   }
 
   // Render a snapshot with departed predictions pruned so nothing shows
@@ -416,20 +423,12 @@
     state.data.placeName = snap.placeName || '';
     state.data.stations = snap.stations;
     state.showingSnapshot = true;
-    state.snapshotSavedAt = snap.savedAt;
+    state.lastUpdatedAt = snap.savedAt;
     updateHeaderTitle();
     setLoading(false);
     render();
     focusFirst();
-    showSnapshotIndicator();
-  }
-
-  function showSnapshotIndicator() {
-    if (navigator.onLine === false) {
-      setIndicator('offline');
-    } else {
-      setIndicator('cached', '\u25CF CACHED ' + fmtAge(Date.now() - state.snapshotSavedAt));
-    }
+    updateIndicator();
   }
 
   function updateHeaderTitle() {
@@ -981,7 +980,7 @@
     }).catch(function() {
       state.isRefreshing = false;
       setStatus('live');
-      if (navigator.onLine === false) setIndicator('offline');
+      updateIndicator();
     });
   }
 
@@ -1114,7 +1113,7 @@
     if (state.data.stations.length > 0 && !state.isRefreshing) refreshAll();
   }
   function onOffline() {
-    setIndicator('offline');
+    updateIndicator();
   }
 
   function registerServiceWorker() {
@@ -1240,7 +1239,8 @@
 
     var snap = state.paramOverride ? null : loadSnapshot();
     if (snap) showSnapshot(snap);
-    if (navigator.onLine === false) setIndicator('offline');
+    updateIndicator();
+    startIndicatorTicker();
 
     startApp();
   }

@@ -82,7 +82,7 @@ body {
   color: var(--success);
   animation: pulse 1.6s ease-in-out infinite;
 }
-.status-cached {
+.status-stale {
   color: var(--text-muted);
 }
 .status-offline {
