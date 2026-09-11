@@ -917,7 +917,9 @@
     if (document.hidden) {
       stopRefreshTimer();
       stopLocationWatch();
+      detachOrientation();
     } else if (state.data.stations.length > 0 && !state.isRefreshing) {
+      attachOrientation();
       startLocationWatch();
       refreshAll();
       startRefreshTimer();
@@ -943,6 +945,47 @@
     }
     state.currentHeading = heading;
     updateArrows();
+  }
+
+  // Per the guide: feature-detect DeviceOrientationEvent.requestPermission
+  // and call it from a user gesture. The glasses runtime and Android grant
+  // automatically, so the listener attaches right away there; iOS Safari
+  // waits for the first Enter/click. The listener is detached while the
+  // tab is hidden so the sensor stream doesn't run in the background.
+  var orientationGranted = false;
+  var orientationAttached = false;
+
+  function attachOrientation() {
+    if (orientationAttached || !orientationGranted) return;
+    window.addEventListener('deviceorientation', onOrientation);
+    orientationAttached = true;
+  }
+  function detachOrientation() {
+    if (!orientationAttached) return;
+    window.removeEventListener('deviceorientation', onOrientation);
+    orientationAttached = false;
+  }
+
+  function setupOrientation() {
+    if (typeof DeviceOrientationEvent === 'undefined') return;
+    if (typeof DeviceOrientationEvent.requestPermission !== 'function') {
+      orientationGranted = true;
+      attachOrientation();
+      return;
+    }
+    // Needs a user gesture: request on the first activation.
+    function requestOnGesture() {
+      document.removeEventListener('click', requestOnGesture);
+      document.removeEventListener('keydown', requestOnGesture);
+      DeviceOrientationEvent.requestPermission().then(function(res) {
+        if (res === 'granted') {
+          orientationGranted = true;
+          if (!document.hidden) attachOrientation();
+        }
+      }).catch(function() { /* arrows stay north-up */ });
+    }
+    document.addEventListener('click', requestOnGesture);
+    document.addEventListener('keydown', requestOnGesture);
   }
 
   function updateArrows() {
@@ -973,7 +1016,7 @@
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
-    window.addEventListener('deviceorientation', onOrientation);
+    setupOrientation();
 
     var contentEl = document.querySelector('.content');
     if (contentEl) contentEl.addEventListener('scroll', updateScrim);
