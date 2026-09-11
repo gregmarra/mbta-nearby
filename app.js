@@ -85,6 +85,8 @@
     cache: {},
     refreshTimer: null,
     staleTimer: null,
+    watchId: null,
+    lastFix: null,
     isRefreshing: false,
     paramOverride: false,
     currentHeading: null,
@@ -376,6 +378,12 @@
   }
 
   // ==================== GEOLOCATION ====================
+  // Per the Meta build guide: 10-15s timeout (the first fix from the paired
+  // phone can take several seconds) and a maximumAge so a recent fix is
+  // reused instead of forcing a fresh GPS request.
+  var GEO_OPTS = { timeout: 15000, enableHighAccuracy: false, maximumAge: 10000 };
+
+  // One-shot fix for the initial load.
   function getLocation() {
     return new Promise(function(resolve, reject) {
       if (!navigator.geolocation) {
@@ -385,9 +393,39 @@
       navigator.geolocation.getCurrentPosition(
         function(p) { resolve({ lat: p.coords.latitude, lon: p.coords.longitude }); },
         function(e) { reject(e); },
-        { timeout: 15000, enableHighAccuracy: false }
+        GEO_OPTS
       );
     });
+  }
+
+  // Continuous tracking after the first fix. watchPosition replaces the
+  // old per-refresh getCurrentPosition polling: the phone pushes fixes as
+  // the wearer moves, and a fix that drifts past moveThresholdMi triggers
+  // a stop re-fetch immediately rather than waiting for the next 30s tick.
+  function startLocationWatch() {
+    if (state.watchId !== null || !navigator.geolocation || state.data.usingMock) return;
+    state.watchId = navigator.geolocation.watchPosition(
+      function(p) {
+        state.lastFix = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now() };
+        var drift = haversine(state.data.lat, state.data.lon, p.coords.latitude, p.coords.longitude);
+        if (drift > CONFIG.moveThresholdMi && state.data.stations.length > 0 && !state.isRefreshing) {
+          refreshAll();
+        }
+      },
+      function(e) {
+        // Transient errors (phone offline, timeout) are fine: the watch
+        // keeps going and refreshAll falls back to the last known fix.
+        console.log('[geo] watch error', e.code, e.message);
+      },
+      GEO_OPTS
+    );
+  }
+
+  function stopLocationWatch() {
+    if (state.watchId !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(state.watchId);
+      state.watchId = null;
+    }
   }
 
   function reverseGeocode(lat, lon) {
@@ -799,11 +837,10 @@
     state.isRefreshing = true;
     setStatus('refreshing');
 
-    var locPromise = state.data.usingMock
-      ? Promise.resolve(null)
-      : getLocation().then(function(l) { return l; }).catch(function() { return null; });
+    // Use the most recent fix from the watch; no per-refresh GPS request.
+    var loc = (!state.data.usingMock && state.lastFix) ? state.lastFix : null;
 
-    locPromise.then(function(loc) {
+    Promise.resolve(loc).then(function(loc) {
       var moved = false;
       if (loc) {
         var drift = haversine(state.data.lat, state.data.lon, loc.lat, loc.lon);
@@ -879,7 +916,9 @@
   function onVisibilityChange() {
     if (document.hidden) {
       stopRefreshTimer();
+      stopLocationWatch();
     } else if (state.data.stations.length > 0 && !state.isRefreshing) {
+      startLocationWatch();
       refreshAll();
       startRefreshTimer();
     }
@@ -994,9 +1033,12 @@
       return loadAll(CONFIG.mock.lat, CONFIG.mock.lon);
     }
 
+    stopLocationWatch();
     getLocation().then(function(loc) {
       state.data.lat = loc.lat;
       state.data.lon = loc.lon;
+      state.lastFix = { lat: loc.lat, lon: loc.lon, at: Date.now() };
+      startLocationWatch();
       return loadAll(loc.lat, loc.lon);
     }).catch(function() {
       state.data.usingMock = true;
