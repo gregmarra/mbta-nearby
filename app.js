@@ -530,22 +530,47 @@
     return mi.toFixed(1) + ' mi';
   }
 
+  // GTFS location_type: 0 = platform/bus stop, 1 = parent station,
+  // 2 = entrance, 3 = generic node (stairs, fare gates). Only 0 and 1 are
+  // places a vehicle serves, so doors and nodes are filtered out server-
+  // side. A platform with a parent station is replaced by that parent so
+  // one subway station shows every line, not just the nearest platform;
+  // fetchPredsBatch already buckets platform predictions under the parent.
   function fetchStops(lat, lon) {
     var url = CONFIG.api.baseUrl + '/stops' +
       '?filter[latitude]=' + lat +
       '&filter[longitude]=' + lon +
-      '&filter[radius]=0.02&sort=distance&page[limit]=25' +
+      '&filter[radius]=0.02&filter[location_type]=0,1' +
+      '&sort=distance&page[limit]=25' +
+      '&include=parent_station' +
       '&fields[stop]=name,latitude,longitude,location_type';
     var cacheKey = 'stops:' + lat.toFixed(4) + ',' + lon.toFixed(4);
     return apiGet(url, { cacheKey: cacheKey }).then(function(j) {
       var raw = j.data || [];
-      var seen = {};
+      var inc = j.included || [];
+      // JSON:API doesn't repeat a resource in `included` if it's already
+      // in `data`, and a parent station within the radius usually is, so
+      // build the lookup from both.
+      var parents = {};
+      for (var k = 0; k < inc.length; k++) {
+        if (inc[k].type === 'stop') parents[inc[k].id] = inc[k];
+      }
+      for (var k = 0; k < raw.length; k++) {
+        if (raw[k].attributes.location_type === 1) parents[raw[k].id] = raw[k];
+      }
+      var seenId = {};
+      var seenName = {};
       var out = [];
       for (var i = 0; i < raw.length; i++) {
         var s = raw[i];
+        var rel = s.relationships && s.relationships.parent_station &&
+                  s.relationships.parent_station.data;
+        if (rel && parents[rel.id]) s = parents[rel.id];
         var nm = s.attributes.name;
-        if (seen[nm]) continue;
-        seen[nm] = true;
+        // Bus stops on opposite curbs share a name; keep the nearer one.
+        if (seenId[s.id] || seenName[nm]) continue;
+        seenId[s.id] = true;
+        seenName[nm] = true;
         out.push({
           id: s.id,
           name: nm,
