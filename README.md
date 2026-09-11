@@ -56,7 +56,9 @@ Without `lat`/`lon`, the app requests geolocation. If permission is denied, it s
 
 ## Built with the Meta Wearables Web App Skills
 
-Follows the conventions from [`facebookincubator/meta-wearables-webapp`](https://github.com/facebookincubator/meta-wearables-webapp): the four-file scaffold, the `.focusable[tabindex="0"]` + `data-action` input model, the standard design tokens (`--bg-primary`, `--accent-primary`, `--focus-ring`), and the typography / spacing rules from `display-guidelines.md` (28/22/16/14/12 dp font scale, 64 dp header, 88 dp primary buttons, 8 dp safe margin, cyan focus glow).
+Follows the conventions from [`facebook/meta-wearables-webapp`](https://github.com/facebook/meta-wearables-webapp) and the [Web Apps build guide](https://wearables.developer.meta.com/docs/develop/webapps/build): the four-file scaffold, the `.focusable[tabindex="0"]` + `data-action` input model, the standard design tokens (`--bg-primary`, `--accent-primary`, `--focus-ring`), and the typography / spacing rules from `display-guidelines.md` (28/22/16/14/12 dp font scale, 64 dp header, 88 dp primary buttons, 8 dp safe margin, cyan focus glow).
+
+`.mcp.json` registers Meta's Wearables MCP endpoint (`https://mcp.developer.meta.com/wearables`, tool `search_webapps_docs`) so Claude Code sessions in this repo can look up current platform docs.
 
 ## Deploy to glasses
 
