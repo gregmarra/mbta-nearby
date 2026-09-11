@@ -88,9 +88,14 @@
     isRefreshing: false,
     paramOverride: false,
     currentHeading: null,
+    showingSnapshot: false,
+    snapshotSavedAt: 0,
   };
 
   var STALE_AFTER_MS = 3 * 60 * 1000;
+  // Ignore localStorage snapshots older than this on startup; predictions
+  // that old are all in the past and carry no information.
+  var SNAPSHOT_MAX_AGE_MS = 20 * 60 * 1000;
 
   // ==================== DOM REFS ====================
   var screens = {};
@@ -217,6 +222,12 @@
   // ==================== UI HELPERS ====================
   function setLoading(isLoading, text, sub) {
     state.isLoading = isLoading;
+    // While a localStorage snapshot is on screen, keep it visible and just
+    // spin the refresh glyph instead of swapping in the full-screen spinner.
+    if (isLoading && state.showingSnapshot) {
+      setStatus('refreshing');
+      return;
+    }
     var el = document.getElementById('loading');
     if (el) el.classList.toggle('hidden', !isLoading);
     if (text) {
@@ -232,6 +243,13 @@
   function setError(message) {
     state.error = message;
     setLoading(false);
+    setStatus('live');
+    // A snapshot beats an error screen: leave it up and let the header
+    // indicator (OFFLINE / CACHED) explain why the numbers aren't moving.
+    if (state.showingSnapshot) {
+      showSnapshotIndicator();
+      return;
+    }
     document.getElementById('station-list').classList.add('hidden');
     var errorEl = document.getElementById('error');
     errorEl.classList.remove('hidden');
@@ -251,15 +269,104 @@
     if (btn) btn.classList.toggle('refreshing', mode === 'refreshing');
   }
 
+  // Header status pill. Modes:
+  //   'live'    — green pulse, data refreshed within STALE_AFTER_MS
+  //   'cached'  — muted, showing a localStorage snapshot (age in label)
+  //   'offline' — amber, navigator.onLine is false
+  //   null      — hidden
+  var INDICATOR = {
+    live:    { text: '\u25CF LIVE',    cls: 'status-live' },
+    cached:  { text: '\u25CF CACHED',  cls: 'status-cached' },
+    offline: { text: '\u25CF OFFLINE', cls: 'status-offline' },
+  };
+  function setIndicator(mode, label) {
+    var el = document.getElementById('status-indicator');
+    if (!el) return;
+    el.classList.remove('status-live', 'status-cached', 'status-offline');
+    if (!mode || !INDICATOR[mode]) {
+      el.classList.add('hidden');
+      return;
+    }
+    el.textContent = label || INDICATOR[mode].text;
+    el.classList.add(INDICATOR[mode].cls);
+    el.classList.remove('hidden');
+  }
+
   // Show the "LIVE" indicator on a successful refresh; auto-hide it after
   // STALE_AFTER_MS so it disappears when refreshes have been failing.
   function markFresh() {
-    var el = document.getElementById('status-indicator');
-    if (el) el.classList.remove('hidden');
+    state.showingSnapshot = false;
+    setStatus('live');
+    setIndicator('live');
+    saveSnapshot();
     if (state.staleTimer) clearTimeout(state.staleTimer);
     state.staleTimer = setTimeout(function() {
-      if (el) el.classList.add('hidden');
+      setIndicator(navigator.onLine === false ? 'offline' : null);
     }, STALE_AFTER_MS);
+  }
+
+  // ==================== SNAPSHOT (localStorage) ====================
+  // Persist the last successful render so a cold start (or an offline
+  // start) can paint real stops immediately instead of a spinner.
+  function saveSnapshot() {
+    try {
+      localStorage.setItem(CONFIG.storageKey, JSON.stringify({
+        savedAt: Date.now(),
+        lat: state.data.lat,
+        lon: state.data.lon,
+        placeName: state.data.placeName,
+        stations: state.data.stations,
+      }));
+    } catch (e) { /* quota / private mode — snapshot is best-effort */ }
+  }
+
+  function loadSnapshot() {
+    try {
+      var raw = localStorage.getItem(CONFIG.storageKey);
+      if (!raw) return null;
+      var snap = JSON.parse(raw);
+      if (!snap || !snap.stations || !snap.stations.length) return null;
+      if (Date.now() - snap.savedAt > SNAPSHOT_MAX_AGE_MS) return null;
+      return snap;
+    } catch (e) { return null; }
+  }
+
+  function fmtAge(ms) {
+    var m = Math.round(ms / 60000);
+    if (m < 1) return 'just now';
+    return m + 'm ago';
+  }
+
+  // Render a snapshot with departed predictions pruned so nothing shows
+  // as "NOW" that actually left ten minutes ago.
+  function showSnapshot(snap) {
+    var cutoff = Date.now() - 60 * 1000;
+    snap.stations.forEach(function(st) {
+      st.groups.forEach(function(g) {
+        g.ps = g.ps.filter(function(p) {
+          return p.status || !p.time || new Date(p.time).getTime() > cutoff;
+        });
+      });
+    });
+    state.data.lat = snap.lat;
+    state.data.lon = snap.lon;
+    state.data.placeName = snap.placeName || '';
+    state.data.stations = snap.stations;
+    state.showingSnapshot = true;
+    state.snapshotSavedAt = snap.savedAt;
+    updateHeaderTitle();
+    setLoading(false);
+    render();
+    focusFirst();
+    showSnapshotIndicator();
+  }
+
+  function showSnapshotIndicator() {
+    if (navigator.onLine === false) {
+      setIndicator('offline');
+    } else {
+      setIndicator('cached', '\u25CF CACHED ' + fmtAge(Date.now() - state.snapshotSavedAt));
+    }
   }
 
   function updateHeaderTitle() {
@@ -294,6 +401,7 @@
         var city = a.city || a.town || a.village || '';
         state.data.placeName = (hood && city) ? hood + ', ' + city : (city || hood || '');
         updateHeaderTitle();
+        if (!state.showingSnapshot) saveSnapshot();
       })
       .catch(function() { /* silent — header stays as-is */ });
   }
@@ -729,6 +837,7 @@
     }).catch(function() {
       state.isRefreshing = false;
       setStatus('live');
+      if (navigator.onLine === false) setIndicator('offline');
     });
   }
 
@@ -806,8 +915,25 @@
     }
   }
 
+  function onOnline() {
+    if (state.data.stations.length > 0 && !state.isRefreshing) refreshAll();
+  }
+  function onOffline() {
+    setIndicator('offline');
+  }
+
+  function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('sw.js').catch(function(err) {
+      // App still works online without it (e.g. file:// or http://).
+      console.log('[SW] registration failed:', err && err.message);
+    });
+  }
+
   function setupEvents() {
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
     window.addEventListener('deviceorientation', onOrientation);
 
     var contentEl = document.querySelector('.content');
@@ -856,7 +982,9 @@
     stopRefreshTimer();
     state.data.usingMock = false;
     clearError();
-    document.getElementById('station-list').classList.add('hidden');
+    if (!state.showingSnapshot) {
+      document.getElementById('station-list').classList.add('hidden');
+    }
     setLoading(true, 'Getting location...', 'Finding nearby MBTA stops');
 
     if (state.paramOverride) {
@@ -892,6 +1020,12 @@
     }
 
     navigateTo('home');
+    registerServiceWorker();
+
+    var snap = state.paramOverride ? null : loadSnapshot();
+    if (snap) showSnapshot(snap);
+    if (navigator.onLine === false) setIndicator('offline');
+
     startApp();
   }
 

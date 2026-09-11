@@ -13,6 +13,7 @@ A web app that shows live arrival predictions for the three nearest MBTA stops. 
 - Reverse-geocoded header (`MBTA · Neighborhood, City`) via OpenStreetMap Nominatim
 - 30-second auto-refresh, paused while the tab is hidden; re-fetches stops if you've moved more than 0.03 mi
 - `LIVE` indicator hides automatically after 3 minutes without a successful refresh
+- Offline mode: a service worker (`sw.js`) precaches the app shell, and the last successful result is snapshotted to `localStorage` so a cold or offline start renders real stops immediately (`CACHED` / `OFFLINE` header pill instead of a spinner). Departed predictions are pruned from the snapshot.
 - D-pad navigation with wrap-around focus and a cyan focus ring per the glasses design system
 
 ## Controls
@@ -47,6 +48,7 @@ Without `lat`/`lon`, the app requests geolocation. If denied or you're outside t
 ├── styles.css              Design tokens, focus states, MBTA route styling
 ├── app.js                  Navigation, API layer, focus management, refresh logic
 ├── manifest.webmanifest    Web App Manifest
+├── sw.js                   Service worker: app-shell precache for offline mode
 └── favicon.png             MBTA T logo (128×128, geometry from the official SVG)
 ```
 
@@ -55,6 +57,8 @@ Without `lat`/`lon`, the app requests geolocation. If denied or you're outside t
 Follows the conventions from [`facebookincubator/meta-wearables-webapp`](https://github.com/facebookincubator/meta-wearables-webapp): the four-file scaffold, the `.focusable[tabindex="0"]` + `data-action` input model, the standard design tokens (`--bg-primary`, `--accent-primary`, `--focus-ring`), and the typography / spacing rules from `display-guidelines.md` (28/22/16/14/12 dp font scale, 64 dp header, 88 dp primary buttons, 8 dp safe margin, cyan focus glow).
 
 ## Deploy to glasses
+
+Bump `CACHE_NAME` in `sw.js` when you deploy so stale shell caches are purged (shell files are also served stale-while-revalidate, so the load after next picks up changes regardless).
 
 Host these files at any public HTTPS endpoint (Vercel, Netlify, Cloudflare Pages, GitHub Pages...). Then in the Meta AI app: **Devices → Display Glasses → App connections → Web apps → Add a web app**.
 

@@ -82,6 +82,12 @@ body {
   color: var(--success);
   animation: pulse 1.6s ease-in-out infinite;
 }
+.status-cached {
+  color: var(--text-muted);
+}
+.status-offline {
+  color: var(--warning);
+}
 .status-refreshing {
   color: var(--accent-primary);
   animation: none;
