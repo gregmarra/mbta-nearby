@@ -72,7 +72,7 @@
   // ==================== STATE ====================
   var state = {
     currentScreen: 'home',
-    screenHistory: [],
+    detailStopId: null,
     isLoading: false,
     error: null,
     data: {
@@ -109,6 +109,13 @@
   }
 
   // ==================== NAVIGATION ====================
+  // Screens are backed by browser history per the Meta back-navigation
+  // guidance: the shell calls history.back() on the back gesture when
+  // navigation.canGoBack, otherwise it opens the system menu. Home is the
+  // root entry (replaceState); detail is one pushState deeper. Never push
+  // while handling a popstate.
+  var HOME_STATE = { screen: 'home' };
+
   function navigateTo(screenId) {
     Object.keys(screens).forEach(function(id) {
       screens[id].classList.add('hidden');
@@ -117,6 +124,60 @@
       screens[screenId].classList.remove('hidden');
       state.currentScreen = screenId;
     }
+  }
+
+  // Stash focus index + scroll offset of the current screen into the
+  // current history entry so popstate can restore them.
+  function saveViewState() {
+    var content = screens[state.currentScreen] &&
+                  screens[state.currentScreen].querySelector('.content');
+    var st = Object.assign({}, history.state || HOME_STATE, {
+      focusIdx: focusables().indexOf(document.activeElement),
+      scrollTop: content ? content.scrollTop : 0,
+    });
+    history.replaceState(st, '');
+  }
+
+  function openStation(stopId) {
+    saveViewState();
+    var st = { screen: 'detail', stopId: stopId };
+    history.pushState(st, '');
+    showScreen(st);
+  }
+
+  function showScreen(st) {
+    st = st || HOME_STATE;
+    if (st.screen === 'detail' && st.stopId) {
+      state.detailStopId = st.stopId;
+      navigateTo('detail');
+      if (!renderDetail()) { history.back(); return; }
+    } else {
+      state.detailStopId = null;
+      navigateTo('home');
+    }
+    // Restore after the destination has laid out.
+    requestAnimationFrame(function() {
+      var content = screens[state.currentScreen].querySelector('.content');
+      if (content && typeof st.scrollTop === 'number') content.scrollTop = st.scrollTop;
+      var list = focusables();
+      if (!list.length) return;
+      var idx = (typeof st.focusIdx === 'number' && st.focusIdx >= 0 && st.focusIdx < list.length)
+        ? st.focusIdx : firstContentIdx(list);
+      list[idx].focus({ preventScroll: true });
+      updateScrim();
+    });
+  }
+
+  // Skip header buttons so initial focus lands on content.
+  function firstContentIdx(list) {
+    for (var i = 0; i < list.length; i++) {
+      if (!list[i].closest('.header')) return i;
+    }
+    return 0;
+  }
+
+  function onPopState(e) {
+    showScreen(e.state);
   }
 
   // ==================== FOCUS MANAGEMENT ====================
@@ -731,33 +792,76 @@
                       esc(effectShort(top.effect)) + '</span>';
         }
 
-        h += '<div class="route-row focusable" tabindex="0">' +
+        h += '<div class="route-row focusable" tabindex="0" data-action="open-station" data-stop="' + esc(stop.id) + '">' +
              '<span class="route-badge" style="background:' + c + ';color:' + tc + ';">' + esc(g.badge) + '</span>' +
              alertHtml +
              '<span class="route-dest">' + esc(g.dest) + '</span>' +
-             '<div class="preds">';
-
-        for (var j = 0; j < 2; j++) {
-          var lbl = j === 0 ? 'Next' : 'Then';
-          var lblCls = 'pred-label';
-          if (j < g.ps.length && g.ps[j].lastTrip) {
-            lbl = 'LAST';
-            lblCls = 'pred-label last';
-          }
-          if (j < g.ps.length) {
-            h += '<div class="pred-col"><div class="' + lblCls + '">' + lbl + '</div>' +
-                 '<div class="pred-val ' + timeCls(g.ps[j]) + '">' + fmtTime(g.ps[j]) + '</div></div>';
-          } else {
-            h += '<div class="pred-col"><div class="pred-label">' + lbl + '</div>' +
-                 '<div class="pred-val none">---</div></div>';
-          }
-        }
-        h += '</div></div>';
+             predsHtml(g) +
+             '</div>';
       }
     }
     el.innerHTML = h;
     el.classList.remove('hidden');
     updateScrim();
+  }
+
+  function predsHtml(g) {
+    var h = '<div class="preds">';
+    for (var j = 0; j < 2; j++) {
+      var lbl = j === 0 ? 'Next' : 'Then';
+      var lblCls = 'pred-label';
+      if (j < g.ps.length && g.ps[j].lastTrip) {
+        lbl = 'LAST';
+        lblCls = 'pred-label last';
+      }
+      if (j < g.ps.length) {
+        h += '<div class="pred-col"><div class="' + lblCls + '">' + lbl + '</div>' +
+             '<div class="pred-val ' + timeCls(g.ps[j]) + '">' + fmtTime(g.ps[j]) + '</div></div>';
+      } else {
+        h += '<div class="pred-col"><div class="pred-label">' + lbl + '</div>' +
+             '<div class="pred-val none">---</div></div>';
+      }
+    }
+    return h + '</div>';
+  }
+
+  // Station detail: every route at one stop with the full alert text
+  // (home only has room for a short effect badge). Returns false if the
+  // stop is no longer in the list (e.g. the wearer moved).
+  function renderDetail() {
+    var st = null;
+    for (var i = 0; i < state.data.stations.length; i++) {
+      if (state.data.stations[i].stop.id === state.detailStopId) { st = state.data.stations[i]; break; }
+    }
+    if (!st) return false;
+
+    document.getElementById('detail-title').textContent = st.stop.name;
+    document.getElementById('detail-dist').textContent = fmtDist(st.stop.d);
+
+    var h = '';
+    if (st.groups.length === 0) {
+      h = '<div class="no-service">No upcoming vehicles</div>';
+    }
+    for (var gi = 0; gi < st.groups.length; gi++) {
+      var g = st.groups[gi];
+      var c = ROUTE_COLORS[g.rId] || g.color || TYPE_COLORS[g.rType] || '#666';
+      var tc = badgeTextColor(c);
+      h += '<div class="route-row detail-row focusable" tabindex="0">' +
+           '<span class="route-badge" style="background:' + c + ';color:' + tc + ';">' + esc(g.badge) + '</span>' +
+           '<span class="route-dest">' + esc(g.dest) + '</span>' +
+           predsHtml(g);
+      for (var ai = 0; ai < (g.alerts || []).length; ai++) {
+        var a = g.alerts[ai];
+        var aCls = (effectSevere(a.effect) || a.severity >= 7) ? 'severe' : '';
+        h += '<div class="detail-alert">' +
+             '<span class="route-alert ' + aCls + '">' + esc(effectShort(a.effect)) + '</span>' +
+             '<span class="detail-alert-text">' + esc(a.header) + '</span>' +
+             '</div>';
+      }
+      h += '</div>';
+    }
+    document.getElementById('detail-list').innerHTML = h;
+    return true;
   }
 
   // Hide the bottom scrim when there's nothing more to scroll to — it's
@@ -775,6 +879,9 @@
     var prev = focusables();
     var prevIdx = prev.indexOf(document.activeElement);
     render();
+    if (state.currentScreen === 'detail') {
+      if (!renderDetail()) { history.back(); return; }
+    }
     var next = focusables();
     if (next.length === 0) return;
     var idx = prevIdx >= 0 && prevIdx < next.length ? prevIdx : 0;
@@ -894,11 +1001,17 @@
   }
 
   // ==================== ACTION HANDLING ====================
-  function handleAction(action) {
+  function handleAction(action, el) {
     switch (action) {
       case 'refresh':
         state.cache = {};
         startApp();
+        break;
+      case 'open-station':
+        if (el && el.dataset.stop) openStation(el.dataset.stop);
+        break;
+      case 'back':
+        history.back();
         break;
       default:
         handleAppAction(action);
@@ -1023,7 +1136,7 @@
 
     document.addEventListener('click', function(e) {
       var el = e.target.closest('[data-action]');
-      if (el) handleAction(el.dataset.action);
+      if (el) handleAction(el.dataset.action, el);
     });
 
     document.addEventListener('keydown', function(e) {
@@ -1051,15 +1164,24 @@
           }
           e.preventDefault();
           break;
-        // Escape (the back gesture) is intentionally unhandled: the glasses
-        // shell checks navigation.canGoBack itself and either calls
-        // history.back() or opens the system menu before the page sees it.
+        case 'Escape':
+          // The glasses shell resolves the back gesture itself via
+          // navigation.canGoBack; this branch gives desktop testing the
+          // same behavior. Nothing is pushed here.
+          if (state.currentScreen !== 'home') {
+            history.back();
+            e.preventDefault();
+          }
+          break;
       }
     });
   }
 
   // ==================== APP FLOW ====================
   function startApp() {
+    if (state.currentScreen !== 'home') {
+      history.back();
+    }
     stopRefreshTimer();
     state.data.usingMock = false;
     clearError();
@@ -1111,6 +1233,8 @@
       CONFIG.mock.lon = parseFloat(params.get('lon'));
     }
 
+    history.replaceState(HOME_STATE, '');
+    window.addEventListener('popstate', onPopState);
     navigateTo('home');
     registerServiceWorker();
 

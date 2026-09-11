@@ -15,13 +15,15 @@ A web app that shows live arrival predictions for the three nearest MBTA stops. 
 - `LIVE` indicator hides automatically after 3 minutes without a successful refresh
 - Offline mode: a service worker (`sw.js`) precaches the app shell, and the last successful result is snapshotted to `localStorage` so a cold or offline start renders real stops immediately (`CACHED` / `OFFLINE` header pill instead of a spinner). Departed predictions are pruned from the snapshot.
 - D-pad navigation with wrap-around focus and a cyan focus ring per the glasses design system
+- Station detail screen: activate any route row to see every route at that stop with full alert text; the back gesture returns home with focus and scroll restored (history-backed, one level deep, within the shell's five-entry `pushState` limit)
 
 ## Controls
 
 | Key | Action |
 |---|---|
 | ↑ / ↓ | Move focus between prediction rows (wraps around) |
-| Enter | Activate focused button (e.g. refresh) |
+| Enter | Open the focused station's detail screen, or activate a button (e.g. refresh) |
+| Back gesture / Esc | Return from the detail screen to the station list |
 
 ## Run locally
 
@@ -44,7 +46,7 @@ Without `lat`/`lon`, the app requests geolocation. If permission is denied, it s
 
 ```
 .
-├── index.html              Single-screen scaffold (home + loading/error containers)
+├── index.html              Home + station detail screens (plus loading/error containers)
 ├── styles.css              Design tokens, focus states, MBTA route styling
 ├── app.js                  Navigation, API layer, focus management, refresh logic
 ├── manifest.webmanifest    Web App Manifest
