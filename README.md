@@ -38,7 +38,7 @@ index.html?lat=42.3936414&lon=-71.1223896
 | `lat` | Latitude override (skips the geolocation prompt) |
 | `lon` | Longitude override |
 
-Without `lat`/`lon`, the app requests geolocation. If denied or you're outside the MBTA service area, it falls back to a Brookline demo location.
+Without `lat`/`lon`, the app requests geolocation. If permission is denied, it shows a message with a Try Again button. If the fix times out, the phone is offline, or you're outside the MBTA service area, it falls back to a Brookline demo location.
 
 ## Project structure
 

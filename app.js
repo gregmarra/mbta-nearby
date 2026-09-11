@@ -1040,7 +1040,15 @@
       state.lastFix = { lat: loc.lat, lon: loc.lon, at: Date.now() };
       startLocationWatch();
       return loadAll(loc.lat, loc.lon);
-    }).catch(function() {
+    }).catch(function(err) {
+      // PERMISSION_DENIED (code 1) gets its own message: silently showing
+      // Brookline stops to a wearer who just declined the prompt is
+      // confusing. Other failures (phone offline, timeout) still fall
+      // back to the demo location.
+      if (err && err.code === 1) {
+        setError('Location permission was denied. Allow location access for this app, then try again.');
+        return;
+      }
       state.data.usingMock = true;
       state.data.lat = CONFIG.mock.lat;
       state.data.lon = CONFIG.mock.lon;
