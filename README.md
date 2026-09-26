@@ -57,7 +57,11 @@ Without `lat`/`lon`, the app requests geolocation. If permission is denied, it s
 ├── manifest.webmanifest    Web App Manifest
 ├── sw.js                   Service worker: app-shell precache for offline mode
 ├── favicon.svg             MBTA T logo, path data from the official mark (browsers)
-└── favicon.png             The same at 128×128 (the glasses do not support SVG favicons)
+├── favicon.png             The same at 128×128 (the glasses do not support SVG favicons)
+├── icon-mono.svg           Alpha mask for the glasses app icon (the T is a hole, not a colour)
+├── .well-known/
+│   └── meta-wearables-manifest.json   App name and icon appearance, read by the glasses
+└── .nojekyll               Keeps GitHub Pages from dropping .well-known/
 ```
 
 ## Built against the Web Apps build guide
@@ -78,6 +82,14 @@ An earlier version of this app followed <https://wearables.developer.meta.com/do
 Bump `CACHE_NAME` in `sw.js` when you deploy so stale shell caches are purged (shell files are also served stale-while-revalidate, so the load after next picks up changes regardless).
 
 Host these files at any public HTTPS endpoint (Vercel, Netlify, Cloudflare Pages, GitHub Pages...). Then in the Meta AI app: **Devices → Display Glasses → App connections → Web apps → Add a web app**.
+
+### App icon
+
+The glasses do not read the favicon or the page markup for the app icon. They fetch a [Meta Wearables manifest](https://wearables.developer.meta.com/docs/develop/webapps/build/app-icons/) from a `.well-known` directory beside the launch URL — for <https://www.grgmrr.com/mbta-nearby/> that is `/mbta-nearby/.well-known/meta-wearables-manifest.json`. **The location follows the launch URL,** so moving the app means moving the manifest.
+
+`icon-mono.svg` is an alpha mask, not a picture: the device keeps the transparency, discards the colours, and gives the shape a white face with a theme-tinted edge. That is why the T is a hole rather than a dark shape on a light disc — a filled disc would mask in as a plain circle with no T. `theme_color` is white so the mark stays white, and because a white theme colour would otherwise derive a white container too, `icon_background` pins the container to an explicit dark gradient (white contrasts 10.6:1 to 19.6:1 against it, against a required 3:1).
+
+On GitHub Pages, `.nojekyll` is load-bearing: the default build is Jekyll, which excludes dot-directories, so without it `.well-known/` is silently never published.
 
 ## Data sources
 

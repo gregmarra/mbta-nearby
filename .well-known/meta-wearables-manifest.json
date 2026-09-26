@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "MBTA Nearby",
+  "description": "Live arrival predictions for the three nearest MBTA stops.",
+  "appearance": {
+    "theme_color": "#FFFFFF",
+    "icon": {
+      "src": "../icon-mono.svg",
+      "type": "monochrome"
+    },
+    "icon_background": {
+      "colors": ["#3A3F4A", "#262A31", "#1C1E23", "#0B0C0E"],
+      "stops": [0.0, 0.35, 0.72, 1.0],
+      "inner_glow_color": "#00D4FF"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="MBTA Nearby">
+  <title>MBTA Nearby</title>
+  <!-- Alpha-only mask for the Meta Wearables app icon: the device keeps the
+       transparency and discards the colours, giving the shape a white face and
+       a theme-tinted edge. So the T must be a hole, not a second colour - a
+       filled white disc with a dark T would mask in as a plain circle.
+       Ring and T are the official path data from mbta.com's header logo,
+       inset to leave clear space for the device's highlight and blur. -->
+  <g transform="translate(6 6) scale(1.444444)" fill="#fff">
+    <path d="m18 34.4a16.4 16.4 0 1 1 16.4-16.4 16.34585 16.34585 0 0 1 -16.4 16.4zm0-34.4a18 18 0 1 0 18 18 18.05292 18.05292 0 0 0 -18-18"/>
+    <path d="m6.6 15.7h8.6v14h5.6v-14h8.6v-5.7h-22.8z"/>
+  </g>
+</svg>
