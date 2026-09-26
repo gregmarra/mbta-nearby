@@ -16,6 +16,7 @@ var APP_SHELL = [
   './styles.css',
   './manifest.webmanifest',
   './favicon.png',
+  './favicon.svg',
 ];
 
 self.addEventListener('install', function(event) {

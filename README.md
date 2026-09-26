@@ -51,7 +51,8 @@ Without `lat`/`lon`, the app requests geolocation. If permission is denied, it s
 ├── app.js                  Navigation, API layer, focus management, refresh logic
 ├── manifest.webmanifest    Web App Manifest
 ├── sw.js                   Service worker: app-shell precache for offline mode
-└── favicon.png             MBTA T logo (128×128, geometry and #1c1e23 ink from the official SVG)
+├── favicon.svg             MBTA T logo, path data from the official mark (browsers)
+└── favicon.png             The same at 128×128 (the glasses do not support SVG favicons)
 ```
 
 ## Built with the Meta Wearables Web App Skills
