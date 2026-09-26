@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Live MBTA arrival predictions for the three nearest stops, built for Meta Ray-Ban Display glasses.">
   <meta name="mrbd-web-app-capable" content="yes">
   <title>MBTA Nearby</title>
@@ -40,15 +40,16 @@
     </div>
 
     <!-- Station detail: opened by activating a route row; the back gesture
-         (history.back) returns home. One level deep, well inside the
-         shell's five-entry pushState limit. -->
+         returns home. One level deep: the shell calls history.back() when a
+         previous entry exists, so nothing here handles Back itself. -->
     <div id="detail" class="screen hidden">
       <header class="header">
         <button class="header-action focusable" id="detail-back" data-action="back" aria-label="Back">&#x2039;</button>
         <h1 id="detail-title">Station</h1>
         <span class="header-meta" id="detail-dist"></span>
       </header>
-      <div class="content">
+      <div class="content focusable" id="detail-content" tabindex="0"
+           role="region" aria-label="Routes at this station">
         <div id="detail-list" class="station-list"></div>
       </div>
       <div class="scrim-bottom"></div>
