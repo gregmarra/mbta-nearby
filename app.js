@@ -195,67 +195,79 @@
     });
   }
 
-  function focusFirst() {
+  // Initial focus for a freshly rendered list. Directional input needs an
+  // anchor to move from, but never steal focus from wherever the wearer
+  // already is (e.g. a background refresh landing mid-browse).
+  function focusInitial() {
+    if (document.activeElement && document.activeElement !== document.body) return;
     var list = focusables();
-    if (list.length) list[0].focus();
+    if (!list.length) return;
+    list[firstContentIdx(list)].focus();
   }
 
-  function moveFocus(direction) {
+  // ==================== DIRECTIONAL INPUT FALLBACK ====================
+  // The glasses browser spatially navigates the native controls itself, and
+  // the build guide is explicit that a page-level arrow-key handler competes
+  // with that and can activate a control twice:
+  // https://wearables.developer.meta.com/docs/develop/webapps/build/input-and-navigation/
+  //
+  // Plain desktop Chrome has no spatial navigation though, so with no handler
+  // at all the arrow keys only scroll and the app is Tab-only to test. So:
+  // listen, but defer. Never preventDefault while it's still unknown who owns
+  // the key, never synthesize a click (Enter and Space activate a <button>
+  // natively everywhere), and on the first press where a move was actually
+  // possible, look at whether the browser moved focus itself:
+  //
+  //   it did    -> the browser owns directional input; unbind for the session
+  //   it didn't -> no spatial navigation here; move focus from now on
+  //
+  // The fallback doesn't wrap, so its edge behavior still matches the device.
+  var arrowOwner = 'unknown';
+
+  // The next control in the current screen's focus order, or null at the end.
+  function nextTarget(back) {
     var list = focusables();
-    if (list.length === 0) return;
-    var current = document.activeElement;
-    var idx = list.indexOf(current);
-    var nextIdx;
-    if (idx === -1) {
-      nextIdx = 0;
-    } else if (direction === 'up' || direction === 'left') {
-      nextIdx = idx > 0 ? idx - 1 : list.length - 1;
-    } else {
-      nextIdx = idx < list.length - 1 ? idx + 1 : 0;
-    }
-    // preventScroll so the browser's default focus auto-scroll (which
-    // only guarantees the focused element is visible) doesn't fight
-    // with our explicit scroll below.
-    list[nextIdx].focus({ preventScroll: true });
-    scrollRowIntoView(list[nextIdx]);
+    var idx = list.indexOf(document.activeElement);
+    if (idx === -1) return list.length ? list[0] : null;
+    var next = back ? idx - 1 : idx + 1;
+    return (next >= 0 && next < list.length) ? list[next] : null;
   }
 
-  // Scrolls .content directly via scrollBy so the result is deterministic.
-  // Priorities: 1) if row hangs below the viewport, scroll down to reveal
-  // it; 2) if this row is the first focusable beneath a station header and
-  // that header is above the viewport, scroll up so the header sits at
-  // the top of the content area (this is the case the user hit when
-  // wrapping back up to the first row); 3) fallback for a row above view
-  // with no preceding header.
-  function scrollRowIntoView(row) {
-    var header = null;
-    for (var n = row.previousElementSibling; n; n = n.previousElementSibling) {
-      if (n.classList.contains('station-header')) { header = n; break; }
-      if (n.classList.contains('focusable')) break;
-    }
+  function onArrowKey(e) {
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    var back = e.key === 'ArrowUp' || e.key === 'ArrowLeft';
+    if (!back && e.key !== 'ArrowDown' && e.key !== 'ArrowRight') return;
 
-    var content = row.closest('.content');
-    if (!content) return;
+    // Nothing to move to this way: leave the key alone so the browser can
+    // scroll, and don't read the stationary focus as evidence either way.
+    if (!nextTarget(back)) return;
 
-    var contentRect = content.getBoundingClientRect();
-    var rowRect = row.getBoundingClientRect();
-
-    if (rowRect.bottom > contentRect.bottom) {
-      content.scrollBy({ top: rowRect.bottom - contentRect.bottom, behavior: 'smooth' });
+    if (arrowOwner === 'page') {
+      var target = nextTarget(back);
+      if (target) {
+        target.focus();
+        // Safe now: we've established this browser doesn't spatially
+        // navigate, so the only default action being dropped is a scroll
+        // that focus() performs anyway.
+        e.preventDefault();
+      }
       return;
     }
 
-    if (header) {
-      var headerRect = header.getBoundingClientRect();
-      if (headerRect.top < contentRect.top) {
-        content.scrollBy({ top: headerRect.top - contentRect.top, behavior: 'smooth' });
+    if (arrowOwner !== 'unknown') return;
+
+    var before = document.activeElement;
+    setTimeout(function() {
+      if (document.activeElement !== before) {
+        arrowOwner = 'browser';
+        document.removeEventListener('keydown', onArrowKey);
         return;
       }
-    }
-
-    if (rowRect.top < contentRect.top) {
-      content.scrollBy({ top: rowRect.top - contentRect.top, behavior: 'smooth' });
-    }
+      arrowOwner = 'page';
+      // Re-query: a background refresh may have re-rendered the list.
+      var target = nextTarget(back);
+      if (target) target.focus();
+    }, 0);
   }
 
   // ==================== API LAYER ====================
@@ -427,7 +439,7 @@
     updateHeaderTitle();
     setLoading(false);
     render();
-    focusFirst();
+    focusInitial();
     updateIndicator();
   }
 
@@ -816,12 +828,12 @@
                       esc(effectShort(top.effect)) + '</span>';
         }
 
-        h += '<div class="route-row focusable" tabindex="0" data-action="open-station" data-stop="' + esc(stop.id) + '">' +
+        h += '<button type="button" class="route-row focusable" data-action="open-station" data-stop="' + esc(stop.id) + '">' +
              '<span class="route-badge" style="background:' + c + ';color:' + tc + ';">' + esc(g.badge) + '</span>' +
              alertHtml +
              '<span class="route-dest">' + esc(g.dest) + '</span>' +
              predsHtml(g) +
-             '</div>';
+             '</button>';
       }
     }
     el.innerHTML = h;
@@ -830,7 +842,7 @@
   }
 
   function predsHtml(g) {
-    var h = '<div class="preds">';
+    var h = '<span class="preds">';
     for (var j = 0; j < 2; j++) {
       var lbl = j === 0 ? 'Next' : 'Then';
       var lblCls = 'pred-label';
@@ -839,14 +851,14 @@
         lblCls = 'pred-label last';
       }
       if (j < g.ps.length) {
-        h += '<div class="pred-col"><div class="' + lblCls + '">' + lbl + '</div>' +
-             '<div class="pred-val ' + timeCls(g.ps[j]) + '">' + fmtTime(g.ps[j]) + '</div></div>';
+        h += '<span class="pred-col"><span class="' + lblCls + '">' + lbl + '</span>' +
+             '<span class="pred-val ' + timeCls(g.ps[j]) + '">' + fmtTime(g.ps[j]) + '</span></span>';
       } else {
-        h += '<div class="pred-col"><div class="pred-label">' + lbl + '</div>' +
-             '<div class="pred-val none">---</div></div>';
+        h += '<span class="pred-col"><span class="pred-label">' + lbl + '</span>' +
+             '<span class="pred-val none">---</span></span>';
       }
     }
-    return h + '</div>';
+    return h + '</span>';
   }
 
   // Station detail: every route at one stop with the full alert text
@@ -870,7 +882,7 @@
       var g = st.groups[gi];
       var c = ROUTE_COLORS[g.rId] || g.color || TYPE_COLORS[g.rType] || '#666';
       var tc = badgeTextColor(c);
-      h += '<div class="route-row detail-row focusable" tabindex="0">' +
+      h += '<div class="route-row detail-row">' +
            '<span class="route-badge" style="background:' + c + ';color:' + tc + ';">' + esc(g.badge) + '</span>' +
            '<span class="route-dest">' + esc(g.dest) + '</span>' +
            predsHtml(g);
@@ -892,8 +904,10 @@
   // meant to hint at off-screen content below, so showing it at the
   // bottom (or when content fits without scrolling) is misleading.
   function updateScrim() {
-    var content = document.querySelector('.content');
-    var scrim = document.querySelector('.scrim-bottom');
+    var screen = screens[state.currentScreen];
+    if (!screen) return;
+    var content = screen.querySelector('.content');
+    var scrim = screen.querySelector('.scrim-bottom');
     if (!content || !scrim) return;
     var atBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 3;
     scrim.classList.toggle('at-bottom', atBottom);
@@ -941,7 +955,7 @@
         clearError();
         setLoading(false);
         render();
-        focusFirst();
+        focusInitial();
         markFresh();
         reverseGeocode(lat, lon);
         startRefreshTimer();
@@ -1155,50 +1169,21 @@
     window.addEventListener('offline', onOffline);
     setupOrientation();
 
-    var contentEl = document.querySelector('.content');
-    if (contentEl) contentEl.addEventListener('scroll', updateScrim);
+    document.querySelectorAll('.content').forEach(function(c) {
+      c.addEventListener('scroll', updateScrim);
+    });
 
     document.addEventListener('click', function(e) {
       var el = e.target.closest('[data-action]');
       if (el) handleAction(el.dataset.action, el);
     });
 
-    document.addEventListener('keydown', function(e) {
-      switch (e.key) {
-        case 'ArrowUp':
-          moveFocus('up');
-          e.preventDefault();
-          break;
-        case 'ArrowDown':
-          moveFocus('down');
-          e.preventDefault();
-          break;
-        case 'ArrowLeft':
-          moveFocus('left');
-          e.preventDefault();
-          break;
-        case 'ArrowRight':
-          moveFocus('right');
-          e.preventDefault();
-          break;
-        case 'Enter':
-          if (document.activeElement &&
-              document.activeElement.classList.contains('focusable')) {
-            document.activeElement.click();
-          }
-          e.preventDefault();
-          break;
-        case 'Escape':
-          // The glasses shell resolves the back gesture itself via
-          // navigation.canGoBack; this branch gives desktop testing the
-          // same behavior. Nothing is pushed here.
-          if (state.currentScreen !== 'home') {
-            history.back();
-            e.preventDefault();
-          }
-          break;
-      }
-    });
+    // Activation needs no handler: Enter and Space fire click on a native
+    // <button>, which the delegated listener above already handles. Back
+    // needs none either — the shell calls history.back() itself when a
+    // previous entry exists. Arrows are only a desktop fallback; see
+    // DIRECTIONAL INPUT FALLBACK above for why it defers to the browser.
+    document.addEventListener('keydown', onArrowKey);
   }
 
   // ==================== APP FLOW ====================

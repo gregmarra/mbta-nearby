@@ -20,6 +20,12 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* The device display is 600x600, but nothing here hardcodes that: the app
+   fills whatever viewport it is given and scrolling lives in one owner per
+   axis (.content).
+   https://wearables.developer.meta.com/docs/develop/webapps/build/display-and-layout/ */
+html { block-size: 100%; }
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Oxygen', 'Ubuntu', 'Cantarell', 'Helvetica Neue', sans-serif;
@@ -27,29 +33,26 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: var(--bg-primary);
   color: var(--text-primary);
-  width: 600px;
-  height: 600px;
+  block-size: 100vh;
+  block-size: 100dvh;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   padding: 8px;
-  overflow: hidden;
   -webkit-user-select: none;
   user-select: none;
 }
 
 #app {
-  width: 100%;
-  height: 100%;
   position: relative;
+  min-block-size: 0;
 }
 
 /* === Screens === */
 .screen {
-  width: 100%;
-  height: 100%;
   display: flex;
   flex-direction: column;
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
 }
 .screen.hidden { display: none; }
 
@@ -128,14 +131,18 @@ body {
 
 /* === Content === */
 .content {
-  flex: 1;
+  flex: 1 1 auto;
+  min-block-size: 0;
   overflow-y: auto;
   position: relative;
   display: flex;
   flex-direction: column;
 }
 
-/* === Focusable (D-pad / EMG navigation) === */
+/* === Focus ring ===
+   .focusable is a styling hook on native controls (and on the detail
+   screen's scroll region). It is not a navigation model: the browser
+   spatially navigates and activates these itself. */
 .focusable {
   transition:
     border-color 300ms cubic-bezier(0.4, 0.04, 0.5, 1),
@@ -149,6 +156,9 @@ body {
   border-color: var(--focus-ring);
   box-shadow: 0 0 20px var(--focus-glow);
 }
+/* The detail screen's scroll region is focusable so directional input can
+   scroll it, but it is not a control. */
+.content.focusable { cursor: auto; }
 
 /* === Primary button (used in error-container "Try Again") === */
 .nav-item {
@@ -278,6 +288,12 @@ body {
   border-radius: var(--radius-md);
   background: transparent;
   min-height: 52px;
+  /* UA button reset: the home rows are native <button> elements. */
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  inline-size: auto;
 }
 .route-row:focus {
   background: var(--bg-card);
@@ -330,6 +346,7 @@ body {
   min-width: 56px;
 }
 .pred-label {
+  display: block;
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -339,6 +356,7 @@ body {
   letter-spacing: 0.5px;
 }
 .pred-val {
+  display: block;
   font-size: 22px;
   font-weight: 700;
   color: var(--accent-primary);
