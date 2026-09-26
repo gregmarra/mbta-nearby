@@ -5,7 +5,7 @@
 // Bump CACHE_NAME on every deploy. Shell files are served
 // stale-while-revalidate, so the *next* load after a deploy picks up new
 // code even without a bump, but bumping guarantees old caches are purged.
-var CACHE_NAME = 'mbta-nearby-v2';
+var CACHE_NAME = 'mbta-nearby-v3';
 
 // Paths are relative to the service worker's scope so the app works when
 // hosted under a sub-path (e.g. https://example.com/mbta-nearby/).
