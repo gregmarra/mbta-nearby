@@ -648,56 +648,82 @@
     });
   }
 
-  // Fetch active service alerts for the given route IDs. Returns a map
-  // of `routeId|directionId` -> [alert{header,effect,severity}], with
-  // direction_id === null in informed_entity bucketed as `routeId|*`
-  // (alert applies to both directions). Filters to severity >= 3 to
-  // skip purely informational notices (e.g. long-running renovations).
-  function fetchAlerts(routeIds) {
-    if (routeIds.length === 0) return Promise.resolve({});
-    var url = CONFIG.api.baseUrl + '/alerts' +
-      '?filter[route]=' + routeIds.join(',') +
-      '&filter[activity]=BOARD,EXIT,RIDE' +
-      '&fields[alert]=header,short_header,effect,severity,informed_entity';
-    var cacheKey = 'alerts:' + routeIds.slice().sort().join('|');
-    return apiGet(url, { cacheKey: cacheKey, cacheDuration: 60000 }).then(function(j) {
-      var alerts = j.data || [];
-      var byKey = {};
-      for (var i = 0; i < alerts.length; i++) {
-        var a = alerts[i];
-        var attrs = a.attributes;
-        if ((attrs.severity || 0) < 3) continue;
-        var info = {
-          header: attrs.short_header || attrs.header || '',
-          effect: attrs.effect,
-          severity: attrs.severity || 0,
-        };
-        var entities = attrs.informed_entity || [];
-        var seenForThisAlert = {};
-        for (var k = 0; k < entities.length; k++) {
-          var ent = entities[k];
-          if (!ent.route || routeIds.indexOf(ent.route) === -1) continue;
-          var key = ent.route + '|' + (ent.direction_id == null ? '*' : ent.direction_id);
-          if (seenForThisAlert[key]) continue;
-          seenForThisAlert[key] = true;
-          if (!byKey[key]) byKey[key] = [];
-          byKey[key].push(info);
-        }
-      }
-      return byKey;
-    });
-  }
-
-  function collectRouteIds() {
+  // Routes with upcoming vehicles at one station.
+  function routeIdsAt(station) {
     var seen = {};
-    state.data.stations.forEach(function(st) {
-      st.groups.forEach(function(g) { seen[g.rId] = true; });
-    });
+    station.groups.forEach(function(g) { seen[g.rId] = true; });
     return Object.keys(seen);
   }
 
-  function attachAlerts(byKey) {
+  // Fetch active service alerts, one request per station. Alerts are filtered
+  // by stop as well as route: a route-wide query also returns alerts scoped to
+  // individual stops, so a closure three stops down the line would show up
+  // here as though it affected this one.
+  //
+  // The stop filter has to do that scoping rather than matching
+  // informed_entity.stop ourselves, because our stops are parent stations
+  // while the entities name child platforms (filtering /alerts by
+  // place-pktrm returns entities for stop 70144). The API resolves that
+  // relationship; we have no child list to match against.
+  //
+  // Returns stopId -> { 'routeId|directionId': [alert{header,effect,severity}] },
+  // with direction_id === null bucketed as `routeId|*` (applies to both
+  // directions). Severity < 3 is dropped to skip purely informational
+  // notices (e.g. long-running renovations).
+  function fetchAlerts(stations) {
+    return Promise.all(stations.map(function(st) {
+      var routeIds = routeIdsAt(st);
+      if (routeIds.length === 0) return Promise.resolve([st.stop.id, {}]);
+      var url = CONFIG.api.baseUrl + '/alerts' +
+        '?filter[stop]=' + encodeURIComponent(st.stop.id) +
+        '&filter[route]=' + routeIds.join(',') +
+        '&filter[activity]=BOARD,EXIT,RIDE' +
+        '&fields[alert]=header,short_header,effect,severity,informed_entity';
+      var cacheKey = 'alerts:' + st.stop.id + ':' + routeIds.slice().sort().join('|');
+      return apiGet(url, { cacheKey: cacheKey, cacheDuration: 60000 })
+        .then(function(j) {
+          return [st.stop.id, alertsByRouteDir(j.data || [], routeIds)];
+        })
+        // One station's alerts failing shouldn't blank out the others'.
+        .catch(function() { return [st.stop.id, {}]; });
+    })).then(function(pairs) {
+      var byStop = {};
+      for (var i = 0; i < pairs.length; i++) byStop[pairs[i][0]] = pairs[i][1];
+      return byStop;
+    });
+  }
+
+  // Bucket one station's alerts by route + direction. Every alert here
+  // already applies to this station, so an entity's own stop is ignored —
+  // only its route and direction narrow it further.
+  function alertsByRouteDir(alerts, routeIds) {
+    var byKey = {};
+    for (var i = 0; i < alerts.length; i++) {
+      var attrs = alerts[i].attributes;
+      if ((attrs.severity || 0) < 3) continue;
+      var info = {
+        header: attrs.short_header || attrs.header || '',
+        effect: attrs.effect,
+        severity: attrs.severity || 0,
+      };
+      var entities = attrs.informed_entity || [];
+      var seenForThisAlert = {};
+      for (var k = 0; k < entities.length; k++) {
+        var ent = entities[k];
+        if (!ent.route || routeIds.indexOf(ent.route) === -1) continue;
+        var key = ent.route + '|' + (ent.direction_id == null ? '*' : ent.direction_id);
+        if (seenForThisAlert[key]) continue;
+        seenForThisAlert[key] = true;
+        if (!byKey[key]) byKey[key] = [];
+        byKey[key].push(info);
+      }
+    }
+    return byKey;
+  }
+
+  function attachAlerts(byStop) {
     state.data.stations.forEach(function(st) {
+      var byKey = byStop[st.stop.id] || {};
       st.groups.forEach(function(g) {
         var direct = byKey[g.rId + '|' + g.dId] || [];
         var both = byKey[g.rId + '|*'] || [];
@@ -949,9 +975,9 @@
         state.data.stations = stops.map(function(s) {
           return { stop: s, groups: byStop[s.id] || [] };
         });
-        return fetchAlerts(collectRouteIds()).catch(function() { return {}; });
-      }).then(function(byKey) {
-        attachAlerts(byKey);
+        return fetchAlerts(state.data.stations).catch(function() { return {}; });
+      }).then(function(byStop) {
+        attachAlerts(byStop);
         clearError();
         setLoading(false);
         render();
@@ -1004,9 +1030,9 @@
             state.data.stations = stops.map(function(s) {
               return { stop: s, groups: byStop[s.id] || [] };
             });
-            return fetchAlerts(collectRouteIds()).catch(function() { return {}; });
-          }).then(function(byKey) {
-            attachAlerts(byKey);
+            return fetchAlerts(state.data.stations).catch(function() { return {}; });
+          }).then(function(byStop) {
+            attachAlerts(byStop);
             renderPreservingFocus();
           });
         });
@@ -1031,9 +1057,9 @@
       for (var i = 0; i < stations.length; i++) {
         stations[i].groups = byStop[stations[i].stop.id] || [];
       }
-      return fetchAlerts(collectRouteIds()).catch(function() { return {}; });
-    }).then(function(byKey) {
-      attachAlerts(byKey);
+      return fetchAlerts(state.data.stations).catch(function() { return {}; });
+    }).then(function(byStop) {
+      attachAlerts(byStop);
       renderPreservingFocus();
     });
   }
